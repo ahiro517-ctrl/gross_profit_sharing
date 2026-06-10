@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html>
+<head>
+<base target="_top">
+<style>
+body{font-family:sans-serif;font-size:13px;margin:10px;}
+label{display:block;margin-top:10px;font-weight:bold;}
+input,select{box-sizing:border-box;padding:5px;margin-top:3px;}
+.full{width:100%;}
+button{margin-top:14px;width:100%;padding:8px;background:#1a73e8;color:#fff;border:0;border-radius:4px;font-size:14px;cursor:pointer;}
+button:disabled{background:#aaa;}
+.add{width:auto;background:#fff;color:#1a73e8;border:1px solid #1a73e8;padding:4px 10px;margin-top:6px;}
+.row{display:flex;gap:6px;margin-top:5px;}
+.row select{flex:1;}
+.row input{width:70px;}
+.row .del{width:auto;background:#fff;color:#d93025;border:1px solid #d93025;padding:2px 8px;margin-top:3px;}
+.note{color:#666;font-size:11px;margin-top:3px;}
+#projChecks{max-height:220px;overflow-y:auto;border:1px solid #ddd;padding:6px;margin-top:5px;}
+.chk{display:block;margin:2px 0;font-weight:normal;}
+#msg{margin-top:10px;white-space:pre-wrap;}
+.ok{color:#188038;} .ng{color:#d93025;}
+</style>
+</head>
+<body>
+<div id="loading">読み込み中...</div>
+<div id="form" style="display:none">
+  <div class="note">複数案件に同じ制作%を一括適用する入力ショートカットです。計上は案件ごと(その案件の制作原資×%・その案件の請求月)に行われます。現場分配は対象外です。</div>
+
+  <label>親案件で絞り込み(任意)</label>
+  <select id="parent" class="full"><option value="">(指定しない:下の一覧から任意にチェック)</option></select>
+
+  <label>対象案件(チェックで選択)</label>
+  <input id="filter" class="full" placeholder="案件名で絞り込み">
+  <div id="projChecks"></div>
+  <div class="note" id="selCount">0件選択中</div>
+
+  <label>制作メンバーと%(全対象案件に同じ%を適用)</label>
+  <div id="rows"></div>
+  <button class="add" id="add">+ メンバーを追加</button>
+  <div class="note" id="residual"></div>
+
+  <button id="submit">まとめ分配を実行する</button>
+  <div class="note">各案件のメイン担当の%は案件ごとに自動計算されます。1案件でもエラーがあれば全体を中断します(部分適用はしません)。</div>
+</div>
+<div id="msg"></div>
+
+<script>
+let DATA = null;
+
+google.script.run.withSuccessHandler(init).withFailureHandler(fail).fsGetInit('bulk');
+
+function init(d){
+  DATA = d;
+  const parent = document.getElementById('parent');
+  d.parents.forEach(p => {
+    const o = document.createElement('option');
+    o.value = p.id; o.textContent = p.name + '(親案件ID:' + p.id + ')';
+    parent.appendChild(o);
+  });
+  renderChecks();
+  document.getElementById('loading').style.display = 'none';
+  document.getElementById('form').style.display = 'block';
+  parent.addEventListener('change', onParent);
+  document.getElementById('filter').addEventListener('input', renderChecks);
+  document.getElementById('add').addEventListener('click', addRow);
+  document.getElementById('submit').addEventListener('click', submit);
+  addRow();
+}
+
+const checked = new Set();
+
+function renderChecks(){
+  const box = document.getElementById('projChecks');
+  const f = document.getElementById('filter').value.trim();
+  box.innerHTML = '';
+  DATA.projects
+    .filter(p => !f || p.label.includes(f))
+    .forEach(p => {
+      const l = document.createElement('label');
+      l.className = 'chk';
+      const c = document.createElement('input');
+      c.type = 'checkbox';
+      c.checked = checked.has(p.id);
+      c.addEventListener('change', () => { c.checked ? checked.add(p.id) : checked.delete(p.id); updateCount(); });
+      l.appendChild(c);
+      l.appendChild(document.createTextNode(' ' + p.label + (p.parentName ? ' [親: ' + p.parentName + ']' : '')));
+      box.appendChild(l);
+    });
+  updateCount();
+}
+
+function onParent(){
+  // 親案件を指定 → その親に紐づく案件(+親自身)を自動チェック(外すことも可能)
+  const pid = document.getElementById('parent').value;
+  checked.clear();
+  if (pid) {
+    DATA.projects.forEach(p => { if (p.parentId === pid || p.id === pid) checked.add(p.id); });
+  }
+  renderChecks();
+}
+
+function updateCount(){
+  document.getElementById('selCount').textContent = checked.size + '件選択中';
+}
+
+function addRow(){
+  const div = document.createElement('div');
+  div.className = 'row';
+  div.innerHTML = `<select>${'<option value=""></option>' + DATA.members.map(m => `<option>${m}</option>`).join('')}</select>
+    <input type="number" min="0.5" step="0.5" placeholder="%">
+    <button class="del">×</button>`;
+  div.querySelector('.del').addEventListener('click', () => { div.remove(); updateResidual(); });
+  div.querySelector('input').addEventListener('input', updateResidual);
+  document.getElementById('rows').appendChild(div);
+}
+
+function items(){
+  return [...document.querySelectorAll('#rows .row')].map(r => ({
+    member: r.querySelector('select').value,
+    pct: Number(r.querySelector('input').value || 0),
+  })).filter(i => i.member || i.pct);
+}
+
+function updateResidual(){
+  const total = items().reduce((s, i) => s + i.pct, 0);
+  document.getElementById('residual').textContent =
+    `他メンバー合計 ${total}% / 各案件のメイン担当に残り ${100 - total}% が自動で付きます`;
+}
+
+function submit(){
+  if (!checked.size) return msg('対象案件をチェックしてください', false);
+  const its = items();
+  if (!its.length) return msg('メンバーと%を入力してください', false);
+  if (its.some(i => !i.member || !(i.pct > 0))) return msg('未入力の行があります', false);
+  if (!confirm(checked.size + '案件に同じ制作%を適用します。よろしいですか?')) return;
+  document.getElementById('submit').disabled = true;
+  msg('登録中...', true);
+  google.script.run.withSuccessHandler(done).withFailureHandler(fail)
+    .fsSubmitBulk({ projIds: [...checked], items: its });
+}
+
+function done(m){ msg(m, true); document.getElementById('submit').disabled = false; }
+function fail(e){ msg('エラー: ' + (e.message || e), false); const b=document.getElementById('submit'); if(b) b.disabled = false; }
+function msg(t, ok){ const el = document.getElementById('msg'); el.textContent = t; el.className = ok ? 'ok' : 'ng'; }
+</script>
+</body>
+</html>

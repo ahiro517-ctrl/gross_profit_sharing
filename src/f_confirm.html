@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html>
+<head>
+<base target="_top">
+<style>
+body{font-family:sans-serif;font-size:13px;margin:10px;}
+label{display:block;margin-top:10px;font-weight:bold;}
+input,select{width:100%;box-sizing:border-box;padding:5px;margin-top:3px;}
+button{margin-top:14px;width:100%;padding:8px;background:#1a73e8;color:#fff;border:0;border-radius:4px;font-size:14px;cursor:pointer;}
+button:disabled{background:#aaa;}
+.note{color:#666;font-size:11px;margin-top:3px;}
+.est{background:#f6f8fa;border:1px solid #ddd;padding:8px;margin-top:10px;font-size:12px;}
+#msg{margin-top:10px;white-space:pre-wrap;}
+.ok{color:#188038;} .ng{color:#d93025;}
+</style>
+</head>
+<body>
+<div id="loading">読み込み中...</div>
+<div id="form" style="display:none">
+  <label>案件(確定待ちのみ表示)</label>
+  <input id="proj" list="projList" placeholder="案件IDまたは案件名で検索">
+  <datalist id="projList"></datalist>
+  <div class="est" id="estBox" style="display:none"></div>
+
+  <label>確定_売上(税抜・円)</label>
+  <input id="sales" type="number" step="1">
+  <label>確定_原価(社外原価のみ・税抜・円)</label>
+  <input id="cost" type="number" step="1">
+  <label>確定_粗利(売上−原価を自動計算・手修正可)</label>
+  <input id="gp" type="number" step="1">
+
+  <button id="submit">確定値を登録する</button>
+  <div class="note">⚠ 確定値は一度入力すると再編集できません(修正は管理者のみ)。精算見積書/請求書ベースで入力してください。</div>
+</div>
+<div id="msg"></div>
+
+<script>
+let DATA = null;
+let gpTouched = false;
+
+google.script.run.withSuccessHandler(init).withFailureHandler(fail).fsGetInit('confirm');
+
+function init(d){
+  DATA = d;
+  const dl = document.getElementById('projList');
+  d.projects.forEach(p => { const o = document.createElement('option'); o.value = p.label; dl.appendChild(o); });
+  document.getElementById('loading').style.display = 'none';
+  document.getElementById('form').style.display = 'block';
+  document.getElementById('proj').addEventListener('change', showEst);
+  document.getElementById('sales').addEventListener('input', calcGp);
+  document.getElementById('cost').addEventListener('input', calcGp);
+  document.getElementById('gp').addEventListener('input', () => gpTouched = true);
+  document.getElementById('submit').addEventListener('click', submit);
+}
+
+function findProj(){
+  const v = document.getElementById('proj').value;
+  return DATA.projects.find(p => p.label === v) || null;
+}
+
+function showEst(){
+  const p = findProj();
+  const box = document.getElementById('estBox');
+  if (!p) { box.style.display = 'none'; return; }
+  box.style.display = 'block';
+  box.textContent = `見積時: 売上 ${fmt(p.estSales)} / 原価 ${fmt(p.estCost)} / 粗利 ${fmt(p.estGp)} | メイン担当: ${p.main} | 請求月: ${p.ym}`;
+}
+function fmt(v){ return (v === '' || v === null || v === undefined) ? '—' : Number(v).toLocaleString(); }
+
+function calcGp(){
+  if (gpTouched) return;
+  const s = Number(document.getElementById('sales').value || 0);
+  const c = Number(document.getElementById('cost').value || 0);
+  document.getElementById('gp').value = s - c;
+}
+
+function submit(){
+  const p = findProj();
+  if (!p) return msg('案件を一覧から選択してください', false);
+  if (!confirm('確定値は一度入力すると再編集できません。登録しますか?')) return;
+  document.getElementById('submit').disabled = true;
+  msg('登録中...', true);
+  google.script.run.withSuccessHandler(done).withFailureHandler(fail).fsSubmitConfirm({
+    projId: p.id,
+    sales: document.getElementById('sales').value,
+    cost: document.getElementById('cost').value,
+    gp: document.getElementById('gp').value,
+  });
+}
+
+function done(m){ msg(m, true); document.getElementById('submit').disabled = false; }
+function fail(e){ msg('エラー: ' + (e.message || e), false); const b=document.getElementById('submit'); if(b) b.disabled = false; }
+function msg(t, ok){ const el = document.getElementById('msg'); el.textContent = t; el.className = ok ? 'ok' : 'ng'; }
+</script>
+</body>
+</html>

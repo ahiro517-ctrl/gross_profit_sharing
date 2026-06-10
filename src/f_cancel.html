@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html>
+<head>
+<base target="_top">
+<style>
+body{font-family:sans-serif;font-size:13px;margin:10px;}
+label{display:block;margin-top:10px;font-weight:bold;}
+input{box-sizing:border-box;padding:5px;margin-top:3px;width:100%;}
+button{margin-top:14px;width:100%;padding:8px;background:#d93025;color:#fff;border:0;border-radius:4px;font-size:14px;cursor:pointer;}
+button:disabled{background:#aaa;}
+.note{color:#666;font-size:11px;margin-top:3px;}
+#list{max-height:340px;overflow-y:auto;border:1px solid #ddd;padding:6px;margin-top:5px;}
+.chk{display:block;margin:4px 0;font-weight:normal;border-bottom:1px solid #eee;padding-bottom:4px;}
+.meta{color:#666;font-size:11px;margin-left:20px;}
+#msg{margin-top:10px;white-space:pre-wrap;}
+.ok{color:#188038;} .ng{color:#d93025;}
+</style>
+</head>
+<body>
+<div id="loading">読み込み中...</div>
+<div id="form" style="display:none">
+  <div class="note">取消は論理削除です(行は残り、集計から除外されます)。修正したい場合は取消→再入力してください。スナップショット値(等級・単価)は変更できません。</div>
+
+  <label>絞り込み</label>
+  <input id="filter" placeholder="案件名・メンバー名・まとめ分配IDで絞り込み">
+
+  <label>取消する分配にチェック</label>
+  <div id="list"></div>
+
+  <button id="submit">チェックした分配を取消する</button>
+</div>
+<div id="msg"></div>
+
+<script>
+let DATA = null;
+const checked = new Set();
+
+google.script.run.withSuccessHandler(init).withFailureHandler(fail).fsGetInit('cancel');
+
+function init(d){
+  DATA = d;
+  render();
+  document.getElementById('loading').style.display = 'none';
+  document.getElementById('form').style.display = 'block';
+  document.getElementById('filter').addEventListener('input', render);
+  document.getElementById('submit').addEventListener('click', submit);
+}
+
+function render(){
+  const f = document.getElementById('filter').value.trim();
+  const box = document.getElementById('list');
+  box.innerHTML = '';
+  const rows = DATA.allocs.filter(a =>
+    !f || [a.projName, a.projId, a.member, a.bulkId].some(v => String(v).includes(f)));
+  if (!rows.length) { box.textContent = '該当する分配はありません'; return; }
+  rows.slice().reverse().forEach(a => {   // 新しい順
+    const l = document.createElement('label');
+    l.className = 'chk';
+    const c = document.createElement('input');
+    c.type = 'checkbox';
+    c.checked = checked.has(a.id);
+    c.addEventListener('change', () => { c.checked ? checked.add(a.id) : checked.delete(a.id); });
+    l.appendChild(c);
+    l.appendChild(document.createTextNode(` [${a.kind}] ${a.member} — ${a.detail}`));
+    const meta = document.createElement('div');
+    meta.className = 'meta';
+    meta.textContent = `${a.projId}:${a.projName} / 入力: ${a.by} ${a.at}` + (a.bulkId ? ` / まとめ:${a.bulkId}` : '');
+    l.appendChild(meta);
+    box.appendChild(l);
+  });
+}
+
+function submit(){
+  if (!checked.size) return msg('取消対象をチェックしてください', false);
+  if (!confirm(checked.size + '件の分配を取消します。よろしいですか?')) return;
+  document.getElementById('submit').disabled = true;
+  msg('処理中...', true);
+  google.script.run.withSuccessHandler(done).withFailureHandler(fail).fsSubmitCancel({ allocIds: [...checked] });
+}
+
+function done(m){
+  msg(m + '(一覧を更新します)', true);
+  checked.clear();
+  google.script.run.withSuccessHandler(d => { DATA = d; render(); document.getElementById('submit').disabled = false; })
+    .withFailureHandler(fail).fsGetInit('cancel');
+}
+function fail(e){ msg('エラー: ' + (e.message || e), false); const b=document.getElementById('submit'); if(b) b.disabled = false; }
+function msg(t, ok){ const el = document.getElementById('msg'); el.textContent = t; el.className = ok ? 'ok' : 'ng'; }
+</script>
+</body>
+</html>

@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html>
+<head>
+<base target="_top">
+<style>
+body{font-family:sans-serif;font-size:13px;margin:10px;}
+label{display:block;margin-top:10px;font-weight:bold;}
+input,select{width:100%;box-sizing:border-box;padding:5px;margin-top:3px;}
+button{margin-top:14px;width:100%;padding:8px;background:#1a73e8;color:#fff;border:0;border-radius:4px;font-size:14px;cursor:pointer;}
+button:disabled{background:#aaa;}
+.note{color:#666;font-size:11px;margin-top:3px;}
+.warn{color:#e37400;font-size:12px;margin-top:5px;}
+.amount{background:#f6f8fa;border:1px solid #ddd;padding:8px;margin-top:10px;font-weight:bold;}
+#msg{margin-top:10px;white-space:pre-wrap;}
+.ok{color:#188038;} .ng{color:#d93025;}
+</style>
+</head>
+<body>
+<div id="loading">読み込み中...</div>
+<div id="form" style="display:none">
+  <div class="note">現場に入ったら自分で入力します(自分でつけて意識を高める運用)。単価・等級は入力時点の値で固定保存されます。</div>
+
+  <label>案件</label>
+  <input id="proj" list="projList" placeholder="案件IDまたは案件名で検索">
+  <datalist id="projList"></datalist>
+
+  <label>メンバー(通常は自分)</label>
+  <select id="member"></select>
+
+  <label>ポジション</label>
+  <select id="position"></select>
+  <div class="warn" id="gradeWarn"></div>
+
+  <label>日数(0.5刻み)</label>
+  <input id="days" type="number" step="0.5" min="0.5">
+
+  <div class="amount" id="amount">金額: —</div>
+  <div class="note">金額 = 1日単価×整数日 + 半日単価×(0.5日があれば1回)</div>
+
+  <button id="submit">現場分配を記録する</button>
+</div>
+<div id="msg"></div>
+
+<script>
+let DATA = null;
+
+google.script.run.withSuccessHandler(init).withFailureHandler(fail).fsGetInit('field');
+
+function init(d){
+  DATA = d;
+  const dl = document.getElementById('projList');
+  d.projects.forEach(p => { const o = document.createElement('option'); o.value = p.label; dl.appendChild(o); });
+  const member = document.getElementById('member');
+  member.innerHTML = d.members.map(m => `<option${d.me && d.me.name === m ? ' selected' : ''}>${m}</option>`).join('');
+  const pos = document.getElementById('position');
+  pos.innerHTML = '<option value="">(選択)</option>' +
+    d.positions.map(p => `<option value="${p.name}">${p.name}(1日${p.day.toLocaleString()}/半日${p.half.toLocaleString()})</option>`).join('');
+  document.getElementById('loading').style.display = 'none';
+  document.getElementById('form').style.display = 'block';
+  ['member','position','days'].forEach(id => document.getElementById(id).addEventListener('input', update));
+  document.getElementById('submit').addEventListener('click', submit);
+}
+
+function update(){
+  const posName = document.getElementById('position').value;
+  const pos = DATA.positions.find(p => p.name === posName);
+  const days = Number(document.getElementById('days').value);
+  const warnEl = document.getElementById('gradeWarn');
+  warnEl.textContent = '';
+  if (pos && pos.minGrade) {
+    const memberName = document.getElementById('member').value;
+    const g = DATA.memberGrades[memberName];
+    if (g && DATA.grades[g] !== undefined && DATA.grades[pos.minGrade] !== undefined && DATA.grades[g] < DATA.grades[pos.minGrade]) {
+      warnEl.textContent = `⚠ ${posName} は ${pos.minGrade} 以上のポジションです(${memberName} は ${g})。警告のみで入力は可能です。`;
+    }
+  }
+  let amt = '—';
+  if (pos && days > 0 && (days * 2) % 1 === 0) {
+    const full = Math.floor(days);
+    amt = (full * pos.day + (days - full > 0 ? pos.half : 0)).toLocaleString() + ' 円';
+  }
+  document.getElementById('amount').textContent = '金額: ' + amt;
+}
+
+function submit(){
+  const v = document.getElementById('proj').value;
+  const p = DATA.projects.find(x => x.label === v);
+  if (!p) return msg('案件を一覧から選択してください', false);
+  const payload = {
+    projId: p.id,
+    memberName: document.getElementById('member').value,
+    position: document.getElementById('position').value,
+    days: document.getElementById('days').value,
+  };
+  if (!payload.position) return msg('ポジションを選択してください', false);
+  document.getElementById('submit').disabled = true;
+  msg('登録中...', true);
+  google.script.run.withSuccessHandler(done).withFailureHandler(fail).fsSubmitField(payload);
+}
+
+function done(m){ msg(m, true); document.getElementById('submit').disabled = false; document.getElementById('days').value = ''; update(); }
+function fail(e){ msg('エラー: ' + (e.message || e), false); const b=document.getElementById('submit'); if(b) b.disabled = false; }
+function msg(t, ok){ const el = document.getElementById('msg'); el.textContent = t; el.className = ok ? 'ok' : 'ng'; }
+</script>
+</body>
+</html>

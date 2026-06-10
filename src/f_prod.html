@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html>
+<head>
+<base target="_top">
+<style>
+body{font-family:sans-serif;font-size:13px;margin:10px;}
+label{display:block;margin-top:10px;font-weight:bold;}
+input,select{box-sizing:border-box;padding:5px;margin-top:3px;}
+.full{width:100%;}
+button{margin-top:14px;width:100%;padding:8px;background:#1a73e8;color:#fff;border:0;border-radius:4px;font-size:14px;cursor:pointer;}
+button:disabled{background:#aaa;}
+.add{width:auto;background:#fff;color:#1a73e8;border:1px solid #1a73e8;padding:4px 10px;margin-top:6px;}
+.row{display:flex;gap:6px;margin-top:5px;}
+.row select{flex:1;}
+.row input{width:70px;}
+.row .del{width:auto;background:#fff;color:#d93025;border:1px solid #d93025;padding:2px 8px;margin-top:3px;}
+.note{color:#666;font-size:11px;margin-top:3px;}
+.residual{background:#f6f8fa;border:1px solid #ddd;padding:8px;margin-top:10px;}
+#msg{margin-top:10px;white-space:pre-wrap;}
+.ok{color:#188038;} .ng{color:#d93025;}
+</style>
+</head>
+<body>
+<div id="loading">読み込み中...</div>
+<div id="form" style="display:none">
+  <div class="note">kintone見積書の業務分担に対応するイメージで、メンバーと%を設定します。残り%は自動でメイン担当に付きます。</div>
+
+  <label>案件(登録済みのみ表示)</label>
+  <input id="proj" list="projList" class="full" placeholder="案件IDまたは案件名で検索">
+  <datalist id="projList"></datalist>
+  <div class="note" id="mainNote"></div>
+
+  <label>制作メンバーと%</label>
+  <div id="rows"></div>
+  <button class="add" id="add">+ メンバーを追加</button>
+
+  <div class="residual" id="residual">メイン担当の取り分: —</div>
+
+  <button id="submit">制作分配を登録する</button>
+  <div class="note">メイン担当以外の合計が100%を超える場合はエラーになります。変更は「分配取消」→再入力で行います。</div>
+</div>
+<div id="msg"></div>
+
+<script>
+let DATA = null;
+
+google.script.run.withSuccessHandler(init).withFailureHandler(fail).fsGetInit('prod');
+
+function init(d){
+  DATA = d;
+  const dl = document.getElementById('projList');
+  d.projects.forEach(p => { const o = document.createElement('option'); o.value = p.label; dl.appendChild(o); });
+  document.getElementById('loading').style.display = 'none';
+  document.getElementById('form').style.display = 'block';
+  document.getElementById('proj').addEventListener('change', update);
+  document.getElementById('add').addEventListener('click', addRow);
+  document.getElementById('submit').addEventListener('click', submit);
+  addRow();
+}
+
+function findProj(){
+  const v = document.getElementById('proj').value;
+  return DATA.projects.find(p => p.label === v) || null;
+}
+
+function addRow(){
+  const div = document.createElement('div');
+  div.className = 'row';
+  div.innerHTML = `<select>${'<option value=""></option>' + DATA.members.map(m => `<option>${m}</option>`).join('')}</select>
+    <input type="number" min="0.5" step="0.5" placeholder="%">
+    <button class="del">×</button>`;
+  div.querySelector('.del').addEventListener('click', () => { div.remove(); update(); });
+  div.querySelector('select').addEventListener('change', update);
+  div.querySelector('input').addEventListener('input', update);
+  document.getElementById('rows').appendChild(div);
+}
+
+function items(){
+  return [...document.querySelectorAll('#rows .row')].map(r => ({
+    member: r.querySelector('select').value,
+    pct: Number(r.querySelector('input').value || 0),
+  })).filter(i => i.member || i.pct);
+}
+
+function update(){
+  const p = findProj();
+  document.getElementById('mainNote').textContent = p ? `メイン担当: ${p.main} / 請求月: ${p.ym}` : '';
+  const total = items().reduce((s, i) => s + i.pct, 0);
+  const res = 100 - total;
+  const el = document.getElementById('residual');
+  el.textContent = p
+    ? `メイン担当(${p.main})の取り分: ${res}%(=100 − 他メンバー合計 ${total}%)`
+    : `他メンバー合計: ${total}% / メイン担当の残り: ${res}%`;
+  el.style.color = res < 0 ? '#d93025' : '';
+}
+
+function submit(){
+  const p = findProj();
+  if (!p) return msg('案件を一覧から選択してください', false);
+  const its = items();
+  if (!its.length) return msg('メンバーと%を入力してください', false);
+  if (its.some(i => !i.member || !(i.pct > 0))) return msg('未入力の行があります', false);
+  document.getElementById('submit').disabled = true;
+  msg('登録中...', true);
+  google.script.run.withSuccessHandler(done).withFailureHandler(fail).fsSubmitProd({ projId: p.id, items: its });
+}
+
+function done(m){ msg(m, true); document.getElementById('submit').disabled = false; }
+function fail(e){ msg('エラー: ' + (e.message || e), false); const b=document.getElementById('submit'); if(b) b.disabled = false; }
+function msg(t, ok){ const el = document.getElementById('msg'); el.textContent = t; el.className = ok ? 'ok' : 'ng'; }
+</script>
+</body>
+</html>

@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html>
+<head>
+<base target="_top">
+<style>
+body{font-family:sans-serif;font-size:13px;margin:10px;}
+label{display:block;margin-top:10px;font-weight:bold;}
+input,select{width:100%;box-sizing:border-box;padding:5px;margin-top:3px;}
+button{margin-top:14px;width:100%;padding:8px;background:#1a73e8;color:#fff;border:0;border-radius:4px;font-size:14px;cursor:pointer;}
+button:disabled{background:#aaa;}
+.note{color:#666;font-size:11px;margin-top:3px;}
+#msg{margin-top:10px;white-space:pre-wrap;}
+.ok{color:#188038;} .ng{color:#d93025;}
+</style>
+</head>
+<body>
+<div id="loading">読み込み中...</div>
+<div id="form" style="display:none">
+  <label>案件(失注・登録済みは表示されません)</label>
+  <input id="proj" list="projList" placeholder="案件IDまたは案件名で検索">
+  <datalist id="projList"></datalist>
+
+  <label>メイン担当</label>
+  <select id="main"></select>
+  <div class="note">初期値は kintone 案件所有者の照合結果です</div>
+
+  <label>請求月上書き(通常は空欄)</label>
+  <input id="ymOverride" placeholder="例: 2027/03(年間一括請求などの例外時のみ)">
+  <div class="note">空欄なら請求月=納品予定日_終の月が自動適用されます</div>
+
+  <label>見積_売上(税抜・円)</label>
+  <input id="sales" type="number" step="1">
+  <label>見積_原価(社外原価のみ・税抜・円)</label>
+  <input id="cost" type="number" step="1">
+  <label>見積_粗利(売上−原価を自動計算・手修正可)</label>
+  <input id="gp" type="number" step="1">
+
+  <button id="submit">登録する</button>
+  <div class="note">見積値は以後上書きされません(確定値は別カラム)</div>
+</div>
+<div id="msg"></div>
+
+<script>
+let DATA = null;
+let gpTouched = false;
+
+google.script.run.withSuccessHandler(init).withFailureHandler(fail).fsGetInit('project');
+
+function init(d){
+  DATA = d;
+  const dl = document.getElementById('projList');
+  d.projects.forEach(p => { const o = document.createElement('option'); o.value = p.label; dl.appendChild(o); });
+  const main = document.getElementById('main');
+  main.innerHTML = '<option value="">(選択)</option>' + d.members.map(m => `<option>${m}</option>`).join('');
+  document.getElementById('loading').style.display = 'none';
+  document.getElementById('form').style.display = 'block';
+
+  document.getElementById('proj').addEventListener('change', () => {
+    const p = findProj();
+    if (p && p.ownerName) main.value = p.ownerName;
+  });
+  document.getElementById('sales').addEventListener('input', calcGp);
+  document.getElementById('cost').addEventListener('input', calcGp);
+  document.getElementById('gp').addEventListener('input', () => gpTouched = true);
+  document.getElementById('submit').addEventListener('click', submit);
+}
+
+function findProj(){
+  const v = document.getElementById('proj').value;
+  return DATA.projects.find(p => p.label === v) || null;
+}
+
+function calcGp(){
+  if (gpTouched) return;
+  const s = Number(document.getElementById('sales').value || 0);
+  const c = Number(document.getElementById('cost').value || 0);
+  document.getElementById('gp').value = s - c;
+}
+
+function submit(){
+  const p = findProj();
+  if (!p) return msg('案件を一覧から選択してください', false);
+  const payload = {
+    projId: p.id,
+    mainName: document.getElementById('main').value,
+    ymOverride: document.getElementById('ymOverride').value,
+    sales: document.getElementById('sales').value,
+    cost: document.getElementById('cost').value,
+    gp: document.getElementById('gp').value,
+  };
+  if (!payload.mainName) return msg('メイン担当を選択してください', false);
+  document.getElementById('submit').disabled = true;
+  msg('登録中...', true);
+  google.script.run.withSuccessHandler(done).withFailureHandler(fail).fsSubmitProject(payload);
+}
+
+function done(m){ msg(m, true); document.getElementById('submit').disabled = false; }
+function fail(e){ msg('エラー: ' + (e.message || e), false); const b=document.getElementById('submit'); if(b) b.disabled = false; }
+function msg(t, ok){ const el = document.getElementById('msg'); el.textContent = t; el.className = ok ? 'ok' : 'ng'; }
+</script>
+</body>
+</html>
