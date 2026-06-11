@@ -85,6 +85,40 @@ function adminCloseHalf() {
   toast_(half + ' を締めました');
 }
 
+// ================= ビュー自動更新(時間主導トリガー) =================
+
+/** 約1時間ごとにビューを自動更新するトリガーを設定 */
+function adminEnableAutoRefresh() {
+  assertAdmin_();
+  deleteAutoRefreshTriggers_();
+  ScriptApp.newTrigger('autoRefreshViews').timeBased().everyHours(1).create();
+  audit_('ビュー自動更新(管理者)', '', '', '', '有効化', '1時間ごと');
+  toast_('ビュー自動更新を有効化しました(約1時間ごとに再計算+全ビュー更新)');
+}
+
+function adminDisableAutoRefresh() {
+  assertAdmin_();
+  const n = deleteAutoRefreshTriggers_();
+  audit_('ビュー自動更新(管理者)', '', '', '', '無効化', '');
+  toast_(n ? 'ビュー自動更新を無効化しました' : '自動更新は設定されていません');
+}
+
+function deleteAutoRefreshTriggers_() {
+  let n = 0;
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    if (t.getHandlerFunction() === 'autoRefreshViews') {
+      ScriptApp.deleteTrigger(t);
+      n++;
+    }
+  });
+  return n;
+}
+
+/** トリガーから呼ばれる本体(設定した管理者の権限で実行される) */
+function autoRefreshViews() {
+  refreshViewsCore_();
+}
+
 /** プロンプト入力。キャンセル時は null */
 function promptValue_(ui, title, msg) {
   const res = ui.prompt(title, msg, ui.ButtonSet.OK_CANCEL);

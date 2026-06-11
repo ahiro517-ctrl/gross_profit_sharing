@@ -191,5 +191,58 @@ SHEETS['設定_マスタ'].data[2][21] = '2026前期'; // 締め済みに2026前
 MASTER_CACHE_ = null;
 expectError('締め済み半期はフォーム拒否', () => fsSubmitField({ projId: '2001', memberName: '鈴木', position: 'スタッフ', days: 1 }), '締め済み');
 
+
+
+// ===== 10. フィードバック対応の新機能 =====
+console.log('10. 新機能(ソート/稼働メモ/既存分配表示/運用開始月)');
+
+// 取込時の請求月降順ソート(section1の取込結果を検証)
+const projOrder = SHEETS['案件データ'].data.slice(1).map(r => String(r[0]));
+check('案件データが請求月の新しい順', projOrder, ['2002', '2001', '999', '940', '1061']);
+
+// 稼働メモ(現場分配)
+fsSubmitField({ projId: '1061', memberName: '佐藤', position: 'スタッフ', days: 1, memo: '6/14-15 設営' });
+const memoRow = alRows().find(r => r[CI(AL_COLS,'稼働メモ')] === '6/14-15 設営');
+check('稼働メモが保存される', !!memoRow, true);
+const cancelInit = fsGetInit('cancel');
+check('取消一覧にメモが表示される', cancelInit.allocs.some(a => String(a.detail).includes('6/14-15 設営')), true);
+
+// 制作分配:既存分配の要約
+const prodInit = fsGetInit('prod');
+const p2002 = prodInit.projects.find(p => p.id === '2002');
+check('案件選択時に既存分配が見える', p2002.existing.includes('佐藤 50%'), true);
+
+// 運用開始月フィルタ(2026/08以降のみ対象にする)
+SHEETS['設定_マスタ'].data[4] = SHEETS['設定_マスタ'].data[4] || [];
+SHEETS['設定_マスタ'].data[4][16] = '運用開始月';
+SHEETS['設定_マスタ'].data[4][17] = '2026/08';
+MASTER_CACHE_ = null;
+const fieldInit = fsGetInit('field');
+check('運用開始月より前の案件は選択肢から除外', fieldInit.projects.some(p => p.id === '1061'), false);
+check('運用開始月以降の案件は選択肢に残る', fieldInit.projects.some(p => p.id === '2001'), true);
+const prodInit2 = fsGetInit('prod');
+check('制作分配の選択肢も同様に除外', prodInit2.projects.map(p => p.id).sort(), ['2001', '2002']);
+// やることリストからも除外される(1061は2026/06なので対象外になる)
+const dV = viewData_();
+const yamada = memberByName_('山田');
+// 鈴木は940(2026/07)の案件所有者なのに未登録 → 通常はやることに出るが、
+// 運用開始月=2026/08 の間は除外される
+const suzuki = memberByName_('鈴木');
+const todosFiltered = todoRowsFor_(dV, suzuki);
+check('やることに運用開始月より前の案件が出ない', todosFiltered.every(t => String(t[1]) !== '940'), true);
+// 元に戻す → 940がやることに復活する
+SHEETS['設定_マスタ'].data[4][16] = '';
+SHEETS['設定_マスタ'].data[4][17] = '';
+MASTER_CACHE_ = null;
+const todosUnfiltered = todoRowsFor_(viewData_(), memberByName_('鈴木'));
+check('運用開始月を空にすると過去案件もやることに出る', todosUnfiltered.some(t => String(t[1]) === '940'), true);
+
+// ビュー描画(凡例・内訳ブロック込みで例外なく走ること)
+buildPersonView_('佐藤');
+const vp2 = SHEETS['V_個人'].data;
+check('V_個人に案件別内訳ブロック', vp2.some(r => String(r[0]).includes('案件別内訳')), true);
+check('V_個人に凡例', String(vp2[1] && vp2[1][0] || '').includes('凡例'), true);
+check('半期タイトルに期間が入る', vp2.some(r => String(r[0]).includes('今半期サマリ') && /\d{4}\/\d{2}〜\d{4}\/\d{2}/.test(String(r[0]))), true);
+
 console.log('\n結果: ' + pass + ' passed, ' + failCnt + ' failed');
 process.exit(failCnt ? 1 : 0);

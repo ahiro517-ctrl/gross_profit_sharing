@@ -60,14 +60,18 @@ function importKintone() {
     }
   }
 
-  // 4) 一括書込(既存は更新、新規は末尾追加 — 並びは案件データ側で固定)
-  if (projData.length > 1) {
-    projSh.getRange(2, 1, projData.length - 1, PROJ_COLS.length)
-      .setValues(projData.slice(1));
-  }
-  if (newRows.length) {
-    projSh.getRange(projData.length + 1, 1, newRows.length, PROJ_COLS.length).setValues(newRows);
-  }
+  // 4) 一括書込:請求月の新しい順に並べ直して書き戻す(請求月なしは末尾)
+  //    下流はすべて案件IDで参照するため、並び順はいつ変わっても壊れない
+  const ymCol = CI(PROJ_COLS, '請求月_自動');
+  const all = projData.slice(1).concat(newRows).filter(function (r) {
+    return String(r[idCol]).trim() !== '';
+  });
+  all.sort(function (x, y) {
+    return String(y[ymCol]).localeCompare(String(x[ymCol]));
+  });
+  const lastRow = projSh.getLastRow();
+  if (lastRow > 1) projSh.getRange(2, 1, lastRow - 1, PROJ_COLS.length).clearContent();
+  if (all.length) projSh.getRange(2, 1, all.length, PROJ_COLS.length).setValues(all);
 
   // 5) 下流の派生値を更新
   recalcAll_();

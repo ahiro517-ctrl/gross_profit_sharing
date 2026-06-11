@@ -22,7 +22,10 @@ function onOpen() {
       .addItem('保護を再設定', 'menuSetupProtections')
       .addItem('確定値修正', 'adminFixConfirmed')
       .addItem('請求月上書き修正', 'adminFixBillingMonth')
-      .addItem('半期締め', 'adminCloseHalf'))
+      .addItem('半期締め', 'adminCloseHalf')
+      .addSeparator()
+      .addItem('ビュー自動更新を有効化(1時間ごと)', 'adminEnableAutoRefresh')
+      .addItem('ビュー自動更新を無効化', 'adminDisableAutoRefresh'))
     .addToUi();
 
   // 個人ビューの初期選択(開いた人のメールから)

@@ -28,6 +28,7 @@ button:disabled{background:#aaa;}
   <label>案件(登録済みのみ表示)</label>
   <input id="proj" list="projList" class="full" placeholder="案件IDまたは案件名で検索">
   <datalist id="projList"></datalist>
+  <div class="note" id="projCount"></div>
   <div class="note" id="mainNote"></div>
 
   <label>制作メンバーと%</label>
@@ -50,6 +51,8 @@ function init(d){
   DATA = d;
   const dl = document.getElementById('projList');
   d.projects.forEach(p => { const o = document.createElement('option'); o.value = p.label; dl.appendChild(o); });
+  document.getElementById('projCount').textContent =
+    `選択できる案件: ${d.projects.length}件(未登録・失注・運用開始月より前の案件は除外されています)`;
   document.getElementById('loading').style.display = 'none';
   document.getElementById('form').style.display = 'block';
   document.getElementById('proj').addEventListener('change', update);
@@ -84,7 +87,9 @@ function items(){
 
 function update(){
   const p = findProj();
-  document.getElementById('mainNote').textContent = p ? `メイン担当: ${p.main} / 請求月: ${p.ym}` : '';
+  document.getElementById('mainNote').textContent = p
+    ? `メイン担当: ${p.main} / 請求月: ${p.ym} / 設定済みの分配: ${p.existing || 'まだありません(メイン担当100%)'}`
+    : '';
   const total = items().reduce((s, i) => s + i.pct, 0);
   const res = 100 - total;
   const el = document.getElementById('residual');

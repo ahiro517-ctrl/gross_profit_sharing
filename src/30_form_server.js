@@ -26,9 +26,9 @@ function fsGetInit(formKind) {
   };
 
   if (formKind === 'project') {
-    // 失注は選択肢から除外。未登録の案件のみ
+    // 失注・運用開始月より前の案件は選択肢から除外。未登録の案件のみ
     base.projects = Object.keys(proj).filter(function (id) {
-      return proj[id].phase !== PHASE_LOST && !piByProj[id];
+      return proj[id].phase !== PHASE_LOST && !piByProj[id] && !isBeforeOpStart_(proj[id].ymAuto);
     }).map(function (id) {
       const p = proj[id];
       return { id: id, label: id + ':' + p.name + '(' + p.client + ')', ownerName: p.ownerName, ym: p.ymAuto };
@@ -50,9 +50,10 @@ function fsGetInit(formKind) {
   }
 
   if (formKind === 'field') {
-    // 現場分配は登録前の案件にも入力可(固定単価のため原資に依存しない)。失注のみ除外
+    // 現場分配は登録前の案件にも入力可(固定単価のため原資に依存しない)。
+    // 失注と運用開始月より前の案件は除外
     base.projects = Object.keys(proj).filter(function (id) {
-      return proj[id].phase !== PHASE_LOST;
+      return proj[id].phase !== PHASE_LOST && !isBeforeOpStart_(proj[id].ymAuto);
     }).map(function (id) {
       const p = proj[id];
       return { id: id, label: id + ':' + p.name + '(' + p.client + ')' };
@@ -68,15 +69,29 @@ function fsGetInit(formKind) {
   }
 
   if (formKind === 'prod' || formKind === 'bulk') {
-    // 制作分配は登録済み(メイン担当あり)案件のみ
+    // 既存の制作分配(有効・非自動)を案件ごとに要約(選択時に現状を表示するため)
+    const alRows = readSheet_(SHEET.ALLOC).rows;
+    const a = function (n) { return CI(AL_COLS, n); };
+    const existingProd = {};
+    alRows.forEach(function (r) {
+      if (r[a('種別')] !== KIND_PROD || truthy_(r[a('無効')]) || truthy_(r[a('自動行')])) return;
+      const id = String(r[a('案件ID')]).trim();
+      if (!id) return;
+      if (!existingProd[id]) existingProd[id] = [];
+      existingProd[id].push(String(r[a('メンバー')]) + ' ' + (Number(r[a('制作%')]) || 0) + '%');
+    });
+
+    // 制作分配は登録済み(メイン担当あり)案件のみ。運用開始月より前は除外
     base.projects = Object.keys(piByProj).filter(function (id) {
-      return String(piByProj[id][c('メイン担当')]).trim() !== '';
+      return String(piByProj[id][c('メイン担当')]).trim() !== ''
+        && !isBeforeOpStart_(normYm_(piByProj[id][c('適用請求月')]));
     }).map(function (id) {
       const r = piByProj[id];
       const p = proj[id] || {};
       return {
         id: id, label: id + ':' + r[c('案件名')], main: String(r[c('メイン担当')]),
         parentId: p.parentId || '', parentName: p.parentName || '', ym: normYm_(r[c('適用請求月')]),
+        existing: (existingProd[id] || []).join('、'),
       };
     });
     if (formKind === 'bulk') {
@@ -94,8 +109,9 @@ function fsGetInit(formKind) {
     base.allocs = al.rows.filter(function (r) {
       return String(r[a('分配ID')]).trim() && !truthy_(r[a('無効')]) && !truthy_(r[a('自動行')]);
     }).map(function (r) {
+      const memo = String(r[a('稼働メモ')] || '');
       const detail = r[a('種別')] === KIND_FIELD
-        ? (r[a('ポジション')] + ' ' + r[a('日数')] + '日 ' + r[a('金額')] + '円')
+        ? (r[a('ポジション')] + ' ' + r[a('日数')] + '日 ' + r[a('金額')] + '円' + (memo ? '【' + memo + '】' : ''))
         : (r[a('制作%')] + '%');
       return {
         id: r[a('分配ID')], projId: r[a('案件ID')], projName: r[a('案件名')],
@@ -210,6 +226,7 @@ function fsSubmitField(p) {
   row[a('単価_1日')] = pos.day;
   row[a('単価_半日')] = pos.half;
   row[a('金額')] = amount;
+  row[a('稼働メモ')] = String(p.memo || '').trim(); // どの現場稼働か(例: 6/14-15 設営)
   row[a('入力者')] = userEmail_();
   row[a('入力日時')] = now_();
   sheet_(SHEET.ALLOC).appendRow(row);

@@ -91,6 +91,11 @@ global.SpreadsheetApp = {
   ProtectionType: { SHEET: 'SHEET' },
 };
 global.HtmlService = { createHtmlOutputFromFile: () => ({ setTitle: () => ({}) }) };
+global.ScriptApp = {
+  getProjectTriggers: () => [],
+  newTrigger: () => ({ timeBased: () => ({ everyHours: () => ({ create: () => ({}) }) }) }),
+  deleteTrigger: () => {},
+};
 
 // ---- ソース読込 + テストを単一スコープで実行 ----
 const path = require('path');

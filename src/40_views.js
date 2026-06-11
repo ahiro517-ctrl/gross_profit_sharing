@@ -5,6 +5,12 @@
  */
 
 function refreshAllViews() {
+  refreshViewsCore_();
+  toast_('ビューを更新しました');
+}
+
+/** 時間主導トリガー(ビュー自動更新)からも呼ばれるサイレント版 */
+function refreshViewsCore_() {
   recalcAll_();
   const vp = ss_().getSheetByName(SHEET.V_PERSON);
   if (vp) {
@@ -17,7 +23,13 @@ function refreshAllViews() {
     buildUnitView_(String(vu.getRange('B1').getValue()));
   }
   buildMgmtView_();
-  toast_('ビューを更新しました');
+}
+
+/** 各ビューの2行目に色・太字の凡例を表示 */
+function paintLegend_(sh) {
+  sh.getRange('A2').setValue(
+    '凡例: 青帯=セクション見出し / グレー帯=列名 / 赤背景=警告あり・目標未達(見込でも届かない) / 金額=円(税抜) / 最終更新: ' + now_()
+  ).setFontColor('#999999');
 }
 
 // ================= 共通データ =================
@@ -122,6 +134,7 @@ function pct_(num, den) {
 
 function buildPersonView_(name) {
   const sh = sheet_(SHEET.V_PERSON);
+  paintLegend_(sh);
   if (!name) { paintView_(sh, 3, [{ title: 'B1セルで自分の名前を選択してください', rows: [] }]); return; }
   const member = memberByName_(name);
   if (!member) { paintView_(sh, 3, [{ title: 'メンバーマスタに「' + name + '」がありません', rows: [] }]); return; }
@@ -142,7 +155,7 @@ function buildPersonView_(name) {
 
   // --- 半期サマリ ---
   blocks.push({
-    title: '半期サマリ(' + half + ')',
+    title: '今半期サマリ ' + halfRangeLabel_(half),
     headers: ['目標', '確定粗利', '予測粗利(確定+進行中)', '目標差額(見込−目標)', '達成率(確定)'],
     rows: [[target, sum.fixed, sum.mikomi, sum.mikomi - target, pct_(sum.fixed, target)]],
   });
@@ -153,12 +166,28 @@ function buildPersonView_(name) {
   }).sort();
   const monthRows = months.concat(futureMonths).map(function (ym) {
     const v = agg[ym] || { fixed: 0, mikomi: 0, projects: {} };
-    const mark = (ym > months[months.length - 1]) ? '(来期)' : '';
+    const mark = (ym > months[months.length - 1]) ? ' ※' + halfOfYm_(ym) + 'に計上' : '';
     return [ym + mark, v.fixed, v.mikomi, Object.keys(v.projects).length];
   });
   blocks.push({ title: '月別(請求月ベース)', headers: ['月', '確定', '見込', '関与案件数'], rows: monthRows });
 
-  // --- 来期計上分(稼働したのに見えない、を防ぐ) ---
+  // --- 今半期の案件別内訳(どの案件でどれだけ粗利を出したかの積み上げ) ---
+  const entries = personProjectEntries_(d, member);
+  const inHalf = entries.filter(function (e) { return months.indexOf(e.ym) >= 0; })
+    .map(function (e) {
+      const mk = (e.fixed !== '') ? Number(e.fixed) : (Number(e.est) || 0);
+      return { e: e, mk: mk };
+    }).sort(function (x, y) { return y.mk - x.mk; });
+  blocks.push({
+    title: '今半期の案件別内訳 ' + halfRangeLabel_(half) + '(見込額の大きい順)',
+    headers: ['案件名', '案件ID', '役割', '請求月', '見込額', '構成比', '確定額', 'ステータス'],
+    rows: inHalf.length ? inHalf.map(function (x) {
+      const ratio = (sum.mikomi > 0) ? Math.round(x.mk / sum.mikomi * 100) + '%' : '—';
+      return [x.e.name, x.e.id, x.e.roles, x.e.ym, x.mk, ratio, x.e.fixed, x.e.status];
+    }) : [['(今半期に計上される案件はまだありません)', '', '', '', '', '', '', '']],
+  });
+
+  // --- 次半期以降の計上分(稼働したのに見えない、を防ぐ) ---
   const nextHalves = {};
   futureMonths.forEach(function (ym) {
     const h = halfOfYm_(ym);
@@ -166,15 +195,15 @@ function buildPersonView_(name) {
     nextHalves[h] += (agg[ym] || { mikomi: 0 }).mikomi;
   });
   blocks.push({
-    title: '来期以降の計上分', headers: ['半期', '見込額'],
+    title: '次半期以降の計上分(請求月が先の案件)', headers: ['半期(期間)', '見込額'],
     rows: Object.keys(nextHalves).sort(function (x, y) { return halfSortKey_(x) - halfSortKey_(y); })
-      .map(function (h) { return [h, nextHalves[h]]; }),
+      .map(function (h) { return [halfRangeLabel_(h), nextHalves[h]]; }),
   });
 
   // --- 自分の案件一覧(親案件グルーピング+小計:仕様§5.4) ---
   const list = personProjects_(d, member);
   blocks.push({
-    title: '自分の案件一覧(新しい順・親案件でグループ)',
+    title: '自分の案件一覧・全期間(新しい順・親案件でグループ)',
     headers: ['親案件名', '案件名', '案件ID', '役割', '請求月', '予測額', '確定額', 'ステータス', '警告'],
     rows: list.rows, highlights: list.highlights,
   });
@@ -182,7 +211,7 @@ function buildPersonView_(name) {
   paintView_(sh, 3, blocks, 9);
 }
 
-/** やることリスト */
+/** やることリスト(運用開始月より前の請求月の案件は対象外) */
 function todoRowsFor_(d, member) {
   const rows = [];
   const nowYm = ymOf_(new Date());
@@ -190,7 +219,7 @@ function todoRowsFor_(d, member) {
   // 1) 自分が案件所有者なのに未登録(kintone取込済・失注以外)
   Object.keys(d.proj).forEach(function (id) {
     const p = d.proj[id];
-    if (p.phase === PHASE_LOST) return;
+    if (p.phase === PHASE_LOST || isBeforeOpStart_(p.ymAuto)) return;
     if (p.ownerName === member.name && !d.piByProj[id]) {
       rows.push(['案件登録', id, p.name, '案件所有者ですが見積が未登録です']);
     }
@@ -199,12 +228,13 @@ function todoRowsFor_(d, member) {
   d.pi.forEach(function (r) {
     const id = String(r[d.c('案件ID')]).trim();
     if (String(r[d.c('メイン担当')]).trim() !== member.name) return;
+    const ym = normYm_(r[d.c('適用請求月')]);
+    if (isBeforeOpStart_(ym)) return;
     // 2) 見積未入力(直接行が作られた場合など)
     if (r[d.c('入力ステータス')] === ST_NO_ESTIMATE) {
       rows.push(['見積入力', id, r[d.c('案件名')], '見積が未入力です']);
     }
     // 3) 請求月を過ぎたのに確定待ち
-    const ym = normYm_(r[d.c('適用請求月')]);
     if (r[d.c('入力ステータス')] === ST_WAIT_FIX && ym && ym < nowYm) {
       rows.push(['確定値入力', id, r[d.c('案件名')], '請求月(' + ym + ')を過ぎています']);
     }
@@ -213,6 +243,7 @@ function todoRowsFor_(d, member) {
   // 4) 自分の制作%が0のまま(メイン担当への催促材料)
   d.al.forEach(function (r) {
     if (String(r[d.a('メンバー')]).trim() !== member.name) return;
+    if (isBeforeOpStart_(normYm_(r[d.a('請求月')]))) return;
     if (r[d.a('種別')] === KIND_PROD && !truthy_(r[d.a('自動行')]) && (Number(r[d.a('制作%')]) || 0) === 0) {
       rows.push(['%未設定', String(r[d.a('案件ID')]), String(r[d.a('案件名')]), '制作%が未設定です(メイン担当に確認)']);
     }
@@ -221,8 +252,8 @@ function todoRowsFor_(d, member) {
   return rows.length ? rows : [['—', '', '', '現在やることはありません']];
 }
 
-/** 個人の案件一覧(親案件グループ+小計行) */
-function personProjects_(d, member) {
+/** 個人の関与案件を案件単位に集約(案件別内訳・案件一覧の共通データ) */
+function personProjectEntries_(d, member) {
   const items = {}; // 案件ID → {roles:{}, est, fixed}
   d.al.forEach(function (r) {
     if (String(r[d.a('メンバー')]).trim() !== member.name) return;
@@ -243,7 +274,7 @@ function personProjects_(d, member) {
     }
   });
 
-  const entries = Object.keys(items).map(function (id) {
+  return Object.keys(items).map(function (id) {
     const p = d.proj[id] || {};
     const pi = d.piByProj[id];
     const roles = [];
@@ -262,6 +293,11 @@ function personProjects_(d, member) {
       warn: pi ? String(pi[d.c('警告')]) : '',
     };
   });
+}
+
+/** 個人の案件一覧(親案件グループ+小計行) */
+function personProjects_(d, member) {
+  const entries = personProjectEntries_(d, member);
 
   // 親案件ごとにグループ化し、グループ内・グループ間とも請求月の新しい順
   const groups = {};
@@ -295,6 +331,7 @@ function personProjects_(d, member) {
 
 function buildUnitView_(unit) {
   const sh = sheet_(SHEET.V_UNIT);
+  paintLegend_(sh);
   if (!unit) { paintView_(sh, 3, [{ title: 'B1セルでユニットを選択してください', rows: [] }]); return; }
 
   const d = viewData_();
@@ -306,13 +343,13 @@ function buildUnitView_(unit) {
 
   const table = memberTable_(unitMembers, agg, months);
   blocks.push({
-    title: 'ユニットサマリ(' + half + ') ' + unit,
+    title: 'ユニットサマリ ' + unit + ' ' + halfRangeLabel_(half),
     headers: ['ユニット目標(メンバー目標合計)', '確定合計', '見込合計', '差額(見込−目標)', '達成率(確定)'],
     rows: [[table.targetSum, table.fixedSum, table.mikomiSum, table.mikomiSum - table.targetSum, pct_(table.fixedSum, table.targetSum)]],
   });
 
   blocks.push({
-    title: 'メンバー別(' + half + ')※赤=見込でも目標未達',
+    title: 'メンバー別 ' + halfRangeLabel_(half) + ' ※赤=見込でも目標未達',
     headers: ['氏名', '等級', '目標', '確定', '見込', '差額(見込−目標)', '達成率(確定)', '関与案件数'],
     rows: table.rows, highlights: table.highlights,
   });
@@ -355,6 +392,7 @@ function memberTable_(memberList, agg, months) {
 function buildMgmtView_() {
   const sh = ss_().getSheetByName(SHEET.V_MGMT);
   if (!sh) return;
+  paintLegend_(sh);
 
   const d = viewData_();
   const agg = aggByMember_(d);
@@ -376,7 +414,7 @@ function buildMgmtView_() {
     summaryRows.push([u, t.targetSum, t.fixedSum, t.mikomiSum, t.mikomiSum - t.targetSum, pct_(t.fixedSum, t.targetSum)]);
   });
   blocks.push({
-    title: '半期サマリ(' + half + ')全社+ユニット別',
+    title: '半期サマリ 全社+ユニット別 ' + halfRangeLabel_(half),
     headers: ['区分', '目標', '確定', '見込', '差額', '達成率(確定)'],
     rows: summaryRows,
   });
@@ -405,7 +443,7 @@ function buildMgmtView_() {
   units.forEach(function (u) {
     const t = unitTables[u];
     blocks.push({
-      title: 'メンバー別 ' + u + '(' + half + ')',
+      title: 'メンバー別 ' + u + ' ' + halfRangeLabel_(half),
       headers: ['氏名', '等級', '目標', '確定', '見込', '差額', '達成率(確定)', '関与案件数'],
       rows: t.rows, highlights: t.highlights,
     });

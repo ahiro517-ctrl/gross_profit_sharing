@@ -23,6 +23,7 @@ button:disabled{background:#aaa;}
   <label>案件</label>
   <input id="proj" list="projList" placeholder="案件IDまたは案件名で検索">
   <datalist id="projList"></datalist>
+  <div class="note" id="projCount"></div>
 
   <label>メンバー(通常は自分)</label>
   <select id="member"></select>
@@ -33,6 +34,10 @@ button:disabled{background:#aaa;}
 
   <label>日数(0.5刻み)</label>
   <input id="days" type="number" step="0.5" min="0.5">
+
+  <label>稼働メモ(任意)</label>
+  <input id="memo" placeholder="例: 6/14-15 設営、7/1 本番 など">
+  <div class="note">同じ案件に複数回現場へ入る場合、どの稼働かを区別するためのメモです</div>
 
   <div class="amount" id="amount">金額: —</div>
   <div class="note">金額 = 1日単価×整数日 + 半日単価×(0.5日があれば1回)</div>
@@ -50,6 +55,8 @@ function init(d){
   DATA = d;
   const dl = document.getElementById('projList');
   d.projects.forEach(p => { const o = document.createElement('option'); o.value = p.label; dl.appendChild(o); });
+  document.getElementById('projCount').textContent =
+    `選択できる案件: ${d.projects.length}件(失注・運用開始月より前の案件は除外されています)`;
   const member = document.getElementById('member');
   member.innerHTML = d.members.map(m => `<option${d.me && d.me.name === m ? ' selected' : ''}>${m}</option>`).join('');
   const pos = document.getElementById('position');
@@ -91,6 +98,7 @@ function submit(){
     memberName: document.getElementById('member').value,
     position: document.getElementById('position').value,
     days: document.getElementById('days').value,
+    memo: document.getElementById('memo').value,
   };
   if (!payload.position) return msg('ポジションを選択してください', false);
   document.getElementById('submit').disabled = true;
@@ -98,7 +106,7 @@ function submit(){
   google.script.run.withSuccessHandler(done).withFailureHandler(fail).fsSubmitField(payload);
 }
 
-function done(m){ msg(m, true); document.getElementById('submit').disabled = false; document.getElementById('days').value = ''; update(); }
+function done(m){ msg(m, true); document.getElementById('submit').disabled = false; document.getElementById('days').value = ''; document.getElementById('memo').value = ''; update(); }
 function fail(e){ msg('エラー: ' + (e.message || e), false); const b=document.getElementById('submit'); if(b) b.disabled = false; }
 function msg(t, ok){ const el = document.getElementById('msg'); el.textContent = t; el.className = ok ? 'ok' : 'ng'; }
 </script>

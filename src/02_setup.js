@@ -16,13 +16,17 @@ function setupAll() {
   setupPasteSheet_();
   // 請求月・日付系の列はプレーンテキスト書式にする('2026/07' 等の文字列が
   // 日付値へ自動変換されるのを防ぎ、ヘッダー名マッチングや月比較を文字列で安定させる)
+  // 金額系の列は #,##0 書式(カンマ区切り表示。値は数値のまま壊れない)
   setupHeaderSheet_(SHEET.PROJ, PROJ_COLS, false,
     ['請求月_自動', '納品予定日_始', '納品予定日_終', '最終取込日時']);
   setupHeaderSheet_(SHEET.PI, PI_COLS, false,
-    ['請求月_自動', '請求月上書き', '適用請求月', '登録日時', '確定入力日時']);
+    ['請求月_自動', '請求月上書き', '適用請求月', '登録日時', '確定入力日時'],
+    ['見積_売上', '見積_原価', '見積_粗利', '確定_売上', '確定_原価', '確定_粗利',
+     '現場稼働合計', '制作原資_予測', '制作原資_確定', '見積確定差額']);
   setupHeaderSheet_(SHEET.ALLOC, AL_COLS, false,
-    ['請求月', '入力日時', '取消日時']);
-  setupHeaderSheet_(SHEET.AGG, AGG_COLS, true, ['請求月']);
+    ['請求月', '入力日時', '取消日時'],
+    ['単価_1日', '単価_半日', '金額', '予測額', '確定額']);
+  setupHeaderSheet_(SHEET.AGG, AGG_COLS, true, ['請求月'], ['確定額', '予測額', '見込額']);
   setupHeaderSheet_(SHEET.AUDIT, AUDIT_COLS, true, ['日時']);
   setupViewSheets_();
   setupProtections();
@@ -47,13 +51,16 @@ function setHeaderRow_(sh, col, headers) {
   sh.getRange(1, col, 1, headers.length).setValues([headers]).setFontWeight('bold').setBackground('#efefef');
 }
 
-/** ヘッダーのみのシート(任意で非表示・指定列をテキスト書式に) */
-function setupHeaderSheet_(name, cols, hidden, textColNames) {
+/** ヘッダーのみのシート(任意で非表示・指定列をテキスト/金額書式に) */
+function setupHeaderSheet_(name, cols, hidden, textColNames, numColNames) {
   const sh = getOrCreateSheet_(name);
   setHeaderRow_(sh, 1, cols); // ヘッダーは常に正に上書き(データ行は触らない)
   sh.setFrozenRows(1);
   (textColNames || []).forEach(function (n) {
     sh.getRange(2, CI(cols, n) + 1, Math.max(sh.getMaxRows() - 1, 1), 1).setNumberFormat('@');
+  });
+  (numColNames || []).forEach(function (n) {
+    sh.getRange(2, CI(cols, n) + 1, Math.max(sh.getMaxRows() - 1, 1), 1).setNumberFormat('#,##0');
   });
   if (hidden) sh.hideSheet();
   return sh;
@@ -99,7 +106,9 @@ function setupMasterSheet_(firstRun) {
   writeBlock_(sh, M_BLOCK.SETTING, '■設定', firstRun ? [
     ['期初月', 7],
     ['ユニット長個人目標', 5000000],
+    ['運用開始月', ''],
   ] : null);
+  ensureSettings_(sh);
 
   writeBlock_(sh, M_BLOCK.ADMIN, '■管理者', firstRun ? [
     [userEmail_() || '(セットアップ実行者のメールを記入)'],
@@ -109,6 +118,20 @@ function setupMasterSheet_(firstRun) {
 
   sh.setFrozenRows(2);
   MASTER_CACHE_ = null;
+}
+
+/** 設定ブロックに必須キーが無ければ追記(バージョンアップで設定キーが増えた場合の対応) */
+function ensureSettings_(sh) {
+  const block = M_BLOCK.SETTING;
+  const existing = readBlock_(block).map(function (r) { return String(r[0]); });
+  const defaults = [['期初月', 7], ['ユニット長個人目標', 5000000], ['運用開始月', '']];
+  let next = 3 + readBlock_(block).length;
+  defaults.forEach(function (d) {
+    if (existing.indexOf(d[0]) < 0) {
+      sh.getRange(next, block.col, 1, 2).setValues([d]);
+      next++;
+    }
+  });
 }
 
 /** ブロック書込:1行目セクション名、2行目ヘッダー。dataRows が null なら見出しのみ整える */

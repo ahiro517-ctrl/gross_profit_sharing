@@ -91,6 +91,28 @@ function currentHalf_() {
   return halfOfYm_(ymOf_(new Date()));
 }
 
+/** 半期ラベルを期間つきで('2026前期' → '2026前期(2026/07〜2026/12)') */
+function halfRangeLabel_(label) {
+  const ms = monthsOfHalf_(label);
+  if (!ms.length) return String(label);
+  return label + '(' + ms[0] + '〜' + ms[5] + ')';
+}
+
+/** 運用開始月('yyyy/MM')。設定_マスタの「運用開始月」。未設定なら '' */
+function opStartYm_() {
+  try {
+    return normYm_(masters_().settings['運用開始月'] || '');
+  } catch (e) {
+    return '';
+  }
+}
+
+/** 運用開始月より前の請求月か(運用開始前の過去案件をやること・選択肢から外す判定) */
+function isBeforeOpStart_(ym) {
+  const start = opStartYm_();
+  return !!(start && ym && ym < start);
+}
+
 /** 半期ラベルの並び替えキー('2026前期'→202607) */
 function halfSortKey_(label) {
   const m = String(label).match(/^(\d{4})(前期|後期)$/);
