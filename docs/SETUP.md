@@ -139,7 +139,22 @@ cd (ここにフォルダをドラッグ&ドロップ)
 
 `src` や `README.md` が表示されれば、正しい場所にいます。
 
-> ⚠️ **以降のコマンドはすべて「このフォルダの中」で実行します。**
+> ⚠️ **「二重フォルダ」に注意(Windowsで特に多いつまずきポイント)**
+> Windowsの「すべて展開」は、ZIPと同じ名前のフォルダを**もう1段**作ります。
+> `dir` で `src` が見えず、**同じ長い名前のフォルダがもう1つ見える**場合は、
+> その中にもう1階層入ってください:
+>
+> ```
+> cd .\gross_profit_sharing-main
+> ```
+>
+> (フォルダ名は実際に表示されたものに合わせてください。`cd .\gross` まで打って
+> **Tabキー**を押すと残りが自動補完されます)
+> もう一度 `dir` して、`src` が見えてから次の章へ進みます。
+> **`src` が見えない場所で手順4を実行すると、`ENOENT: ...\src\.clasp.json` という
+> エラーになります。**
+
+> ⚠️ **以降のコマンドはすべて「`src` が見えるこのフォルダの中」で実行します。**
 > ターミナルを閉じてしまったら、開き直して再度 `cd` でフォルダに入ってください。
 
 ---
@@ -298,7 +313,8 @@ Google ドライブ(https://drive.google.com)を開き、「**粗利見える化
 | `node` や `clasp` が「認識されません / command not found」 | インストール後にターミナルを開き直していない。**ターミナルを閉じて開き直す** |
 | Windowsで「スクリプトの実行が無効になっているため…」 | 手順1-3の `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` を実行 |
 | `User has not enabled the Apps Script API` | 手順2-2の設定がオフ。https://script.google.com/home/usersettings でオンにして1分待つ |
-| `clasp push` で `No valid ....clasp.json project file. You may need to "create" or "clone" a project first.` | `clasp create`(手順4-1)を実行していないか、別のフォルダで実行した。手順4-1を実行してから push し直す。すでに4-1済みの場合は、4-1を実行したフォルダに `cd` で入り直す |
+| `clasp create` の最後に `ENOENT: no such file or directory, open '...\src\.clasp.json'` | 今いるフォルダに `src` がない(ZIP展開の「二重フォルダ」が原因。手順3の注意参照)。**スプレッドシート自体は作成済み**なので、`create` は再実行せず「**付録D**」の手順で復旧する |
+| `clasp push` で `No valid ....clasp.json project file. You may need to "create" or "clone" a project first.` | `clasp create`(手順4-1)を実行していないか、別のフォルダで実行した。手順4-1を実行してから push し直す。すでに4-1済みの場合は、4-1を実行したフォルダに `cd` で入り直す。4-1で上の `ENOENT` エラーが出ていた場合は「**付録D**」へ |
 | `DeprecationWarning: The punycode module is deprecated...` という警告 | エラーではありません。無視してOK(その下に別のエラーが出ていないかだけ確認) |
 | `clasp push` で `Push failed` / 403 | `clasp login` のアカウントが違う。`clasp logout` → `clasp login` で会社アカウントに入り直す |
 | メニュー「粗利ツール」が出ない | ページを再読み込み(F5)。それでも出なければ `clasp push` が成功しているか確認 |
@@ -349,3 +365,36 @@ Google ドライブ(https://drive.google.com)を開き、「**粗利見える化
 
 「設定_マスタ」タブの「■管理者」(T列)に、その人のメールアドレスを追記するだけです。
 管理者は「確定値修正」「半期締め」などの管理メニューが使えるようになります。
+
+## 付録D:`clasp create` は成功したのに `.clasp.json` が作られなかったとき
+
+手順4-1で `Created new Google Sheet:` の2行は出たのに、最後に
+`ENOENT: ...\src\.clasp.json` と出た場合の復旧手順です。
+Google 側のスプレッドシートとプログラムの入れ物は**すでに作成されています**。
+足りないのは「転送先の記録ファイル(.clasp.json)」だけなので、それを手で作ります。
+
+1. まず手順3の「二重フォルダ」の注意を見て、`dir`(Mac は `ls`)で **`src` が見える
+   フォルダに移動**する
+2. 手順4-1のときに表示された2行目のURLから、**スクリプトID**を控える:
+
+   ```
+   Created new Google Sheets Add-on script: https://script.google.com/d/【この部分がスクリプトID】/edit
+   ```
+
+   (画面をスクロールすれば残っています。消してしまった場合は、Googleドライブで
+   「粗利見える化ツール」を開き、「拡張機能 > Apps Script > 歯車(プロジェクトの設定)」
+   からも同じIDをコピーできます)
+3. 次の1行の `ここにスクリプトID` を置き換えて実行する(Windows PowerShell):
+
+   ```
+   Set-Content -Path .clasp.json -Value '{"scriptId":"ここにスクリプトID","rootDir":"src"}'
+   ```
+
+   Mac の場合:
+
+   ```
+   echo '{"scriptId":"ここにスクリプトID","rootDir":"src"}' > .clasp.json
+   ```
+
+4. `clasp push` を実行(手順4-2)。`Pushed 16 files.` と出れば復旧完了です。
+   ドライブに既にある「粗利見える化ツール」がそのまま転送先になります
