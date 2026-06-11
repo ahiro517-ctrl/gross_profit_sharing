@@ -163,12 +163,19 @@ Created new Google Sheets Add-on script: https://script.google.com/d/yyyyy/edit
 
 これで、あなたの Google ドライブの一番上(マイドライブ)に
 「**粗利見える化ツール**」というスプレッドシートが作られました。
+同時に、フォルダの中に `.clasp.json` という設定ファイルが自動で作られます
+(これが「転送先のスプレッドシートはどれか」の記録です。次の `clasp push` が
+このファイルを使うため、**このコマンドが成功していないと 4-2 は必ず失敗します**)。
 
 > 💡 すでにあるスプレッドシートを使いたい場合は、この章の代わりに
 > 最後の「**付録A:既存のスプレッドシートに入れる場合**」を見てください。
 
 > ⚠️ `User has not enabled the Apps Script API` というエラーが出たら、
 > 手順 2-2 を忘れています。設定をオンにして1分待ってからやり直してください。
+>
+> ⚠️ このコマンドは**1回だけ**実行してください。2回実行すると、ドライブに
+> スプレッドシートが2つできてしまいます(その場合は、タブが「シート1」だけの
+> 空っぽの方をドライブから削除すればOKです)。
 
 ### 4-2. プログラムを転送する
 
@@ -181,6 +188,13 @@ clasp push
 - `Manifest file has been updated. Do you want to push and overwrite?` と聞かれたら
   「**y**」と入力して Enter
 - 最後に `Pushed 16 files.` のように出れば成功です
+
+> ⚠️ **`No valid ....clasp.json project file. You may need to "create" or "clone" a project first.` と出た場合**
+> 手順 4-1(`clasp create`)が実行されていない(または途中で失敗した)サインです。
+> 4-1 に戻ってコマンドを実行し、`Created new Google Sheet:` の表示を確認してから、
+> もう一度 `clasp push` してください。
+> (※ `(node:12345) DeprecationWarning: The punycode module is deprecated...` という
+> 黄色っぽい警告は無視してかまいません。エラーではありません)
 
 これで転送は完了です。**今後プログラムが更新されたときも、新しいZIPを展開して
 `cd` でフォルダに入り、`clasp push` を実行するだけで反映されます**(シートのデータは消えません)。
@@ -284,7 +298,8 @@ Google ドライブ(https://drive.google.com)を開き、「**粗利見える化
 | `node` や `clasp` が「認識されません / command not found」 | インストール後にターミナルを開き直していない。**ターミナルを閉じて開き直す** |
 | Windowsで「スクリプトの実行が無効になっているため…」 | 手順1-3の `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` を実行 |
 | `User has not enabled the Apps Script API` | 手順2-2の設定がオフ。https://script.google.com/home/usersettings でオンにして1分待つ |
-| `clasp push` で `Project settings not found`(.clasp.jsonがない) | `clasp create`(手順4-1)を実行していないか、別のフォルダにいる。`cd` でフォルダに入り直す |
+| `clasp push` で `No valid ....clasp.json project file. You may need to "create" or "clone" a project first.` | `clasp create`(手順4-1)を実行していないか、別のフォルダで実行した。手順4-1を実行してから push し直す。すでに4-1済みの場合は、4-1を実行したフォルダに `cd` で入り直す |
+| `DeprecationWarning: The punycode module is deprecated...` という警告 | エラーではありません。無視してOK(その下に別のエラーが出ていないかだけ確認) |
 | `clasp push` で `Push failed` / 403 | `clasp login` のアカウントが違う。`clasp logout` → `clasp login` で会社アカウントに入り直す |
 | メニュー「粗利ツール」が出ない | ページを再読み込み(F5)。それでも出なければ `clasp push` が成功しているか確認 |
 | 「このアプリは Google で確認されていません」 | 異常ではありません。手順5-2の通り「詳細」→「(安全ではないページ)に移動」→「許可」 |
